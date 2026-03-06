@@ -1,142 +1,45 @@
 <!DOCTYPE html>
 <html>
+
 <head>
 
 <title>Cricket Player Auction</title>
-
-<style>
-
-body{
-font-family: Arial;
-background:#f2f2f2;
-padding:40px;
-}
-
-h1{
-text-align:center;
-}
-
-#search{
-width:40%;
-padding:10px;
-font-size:16px;
-margin-bottom:20px;
-}
-
-table{
-width:100%;
-background:white;
-border-collapse:collapse;
-}
-
-th,td{
-padding:12px;
-border:1px solid #ddd;
-text-align:center;
-}
-
-button{
-padding:6px 12px;
-background:#2b7cff;
-color:white;
-border:none;
-cursor:pointer;
-}
-
-button:hover{
-background:#1f5ed1;
-}
-
-</style>
+<link rel="stylesheet" href="/static/style.css">
 
 </head>
 
 <body>
 
-<h1>Indian Cricket Auction</h1>
+<h1>Indian Cricket Player Auction</h1>
 
-<input type="text" id="search" placeholder="Search player..." onkeyup="filterPlayers()">
+<input type="text" id="search" placeholder="Search player..." onkeyup="searchPlayer()">
 
-<table id="playerTable">
-
-<tr>
-<th>Name</th>
-<th>Strike Rate</th>
-<th>Average</th>
-<th>Base Price</th>
-<th>Current Bid</th>
-<th>Increase Bid</th>
-</tr>
+<ul id="players">
 
 {% for p in players %}
 
-<tr>
-
-<td>{{p[1]}}</td>
-<td>{{p[2]}}</td>
-<td>{{p[3]}}</td>
-<td>{{p[4]}}</td>
-<td id="bid{{p[0]}}">{{p[5]}}</td>
-
-<td>
-
-<input type="number" id="input{{p[0]}}" placeholder="New bid">
-
-<button onclick="placeBid({{p[0]}})">
-Bid
-</button>
-
-</td>
-
-</tr>
+<li>
+<a href="/player/{{p[0]}}">
+{{p[1]}}
+</a>
+</li>
 
 {% endfor %}
 
-</table>
+</ul>
 
 <script>
 
-function filterPlayers(){
+function searchPlayer(){
 
 let input=document.getElementById("search").value.toLowerCase()
-let rows=document.querySelectorAll("#playerTable tr")
+let items=document.querySelectorAll("#players li")
 
-rows.forEach((row,i)=>{
+items.forEach(item=>{
 
-if(i==0) return
+let text=item.innerText.toLowerCase()
 
-let name=row.cells[0].innerText.toLowerCase()
-
-row.style.display=name.includes(input) ? "" : "none"
-
-})
-
-}
-
-function placeBid(id){
-
-let value=document.getElementById("input"+id).value
-
-fetch("/bid",{
-method:"POST",
-headers:{
-"Content-Type":"application/x-www-form-urlencoded"
-},
-body:"player_id="+id+"&bid="+value
-})
-.then(res=>res.json())
-.then(data=>{
-
-if(data.status=="success"){
-
-document.getElementById("bid"+id).innerText=value
-alert("Bid updated")
-
-}else{
-
-alert(data.message)
-
-}
+item.style.display=text.includes(input) ? "" : "none"
 
 })
 
@@ -145,5 +48,4 @@ alert(data.message)
 </script>
 
 </body>
-
 </html>
