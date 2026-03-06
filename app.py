@@ -1,55 +1,43 @@
 import os
-import sqlite3
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+import psycopg2
+from flask import Flask, render_template, request, redirect, session, url_for
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.secret_key = "supersecretkey"
+app.secret_key = "auction_secret_key"
 
-DATABASE = "database.db"
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 
-# -------------------------------
-# DATABASE CONNECTION
-# -------------------------------
 def get_db():
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return psycopg2.connect(DATABASE_URL)
 
 
-# -------------------------------
-# CREATE TABLES IF NOT EXIST
-# -------------------------------
+# -----------------------------
+# DATABASE SETUP
+# -----------------------------
 def init_db():
     conn = get_db()
     cur = conn.cursor()
 
+    # users table
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         username TEXT UNIQUE,
         password TEXT
     )
     """)
 
+    # players table
     cur.execute("""
     CREATE TABLE IF NOT EXISTS players(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         name TEXT,
         team TEXT,
         role TEXT,
-        strike_rate REAL,
+        strike_rate FLOAT,
         price INTEGER
-    )
-    """)
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS bids(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        player_id INTEGER,
-        bid_price INTEGER
     )
     """)
 
@@ -57,54 +45,130 @@ def init_db():
     conn.close()
 
 
+# -----------------------------
+# SEED PLAYERS
+# -----------------------------
+def seed_players():
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("SELECT COUNT(*) FROM players")
+    count = cur.fetchone()[0]
+
+    if count == 0:
+        players = [
+            ("Virat Kohli", "RCB", "Batsman", 138.2, 2000000),
+            ("Rohit Sharma", "MI", "Batsman", 131.4, 1800000),
+            ("MS Dhoni", "CSK", "Wicketkeeper", 135.5, 1500000),
+            ("Hardik Pandya", "MI", "All-Rounder", 145.0, 1700000),
+            ("Jasprit Bumrah", "MI", "Bowler", 90.0, 1600000),
+            ("KL Rahul", "LSG", "Wicketkeeper", 134.3, 1500000),
+            ("Rishabh Pant", "DC", "Wicketkeeper", 148.6, 1700000),
+            ("Shubman Gill", "GT", "Batsman", 136.7, 1500000),
+            ("Ravindra Jadeja", "CSK", "All-Rounder", 130.5, 1600000),
+            ("Mohammed Shami", "GT", "Bowler", 85.2, 1400000),
+            ("Suryakumar Yadav", "MI", "Batsman", 150.1, 1800000),
+            ("Jos Buttler", "RR", "Wicketkeeper", 149.0, 1750000),
+            ("Andre Russell", "KKR", "All-Rounder", 174.0, 1900000),
+            ("Rashid Khan", "GT", "Bowler", 120.0, 1850000),
+            ("David Warner", "DC", "Batsman", 140.3, 1600000)
+        ]
+
+        cur.executemany(
+            "INSERT INTO players(name,team,role,strike_rate,price) VALUES (%s,%s,%s,%s,%s)",
+            players
+        )
+
+        conn.commit()
+
+    conn.close()
+
+
 init_db()
+seed_players()
 
 
-# -------------------------------
+# -----------------------------
+# LOGIN REQUIRED
+# -----------------------------
+def login_required():
+    if "user" not in session:
+        return redirect("/login")
+
+
+# -----------------------------
 # HOME PAGE
-# -------------------------------
+# -----------------------------
 @app.route("/")
 def home():
 
-    search = request.args.get("search")
-    team = request.args.get("team")
-    role = request.args.get("role")
-    min_sr = request.args.get("min_sr")
-    max_sr = request.args.get("max_sr")
+    if "user" not in session:
+        return redirect("/login")
 
-    query = "SELECT * FROM players WHERE 1=1"
-    params = []
-
-    if search:
-        query += " AND name LIKE ?"
-        params.append(f"%{search}%")
-
-    if team:
-        query += " AND team=?"
-        params.append(team)
-
-    if role:
-        query += " AND role=?"
-        params.append(role)
-
-    if min_sr:
-        query += " AND strike_rate >= ?"
-        params.append(min_sr)
-
-    if max_sr:
-        query += " AND strike_rate <= ?"
-        params.append(max_sr)
+    search = request.args.get("search", "")
+    team = request.args.get("team", "")
+    role = request.args.get("role", "")
+    sr_min = request.args.get("sr_min", 0)
+    sr_max = request.args.get("sr_max", 1000)
 
     conn = get_db()
-    players = conn.execute(query, params).fetchall()
+    cur = conn.cursor()
+
+    query = """
+    SELECT * FROM players
+    WHERE name ILIKE %s
+    AND team ILIKE %s
+    AND role ILIKE %s
+    AND strike_rate BETWEEN %s AND %s
+    ORDER BY name
+    """
+
+    cur.execute(
+        query,
+        (f"%{search}%", f"%{team}%", f"%{role}%", sr_min, sr_max)
+    )
+
+    players = cur.fetchall()
+
     conn.close()
 
     return render_template("index.html", players=players)
 
 
-# -------------------------------
+# -----------------------------
+# BID
+# -----------------------------
+@app.route("/bid/<int:player_id>", methods=["POST"])
+def bid(player_id):
+
+    if "user" not in session:
+        return redirect("/login")
+
+    new_price = int(request.form["price"])
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("SELECT price FROM players WHERE id=%s", (player_id,))
+    current_price = cur.fetchone()[0]
+
+    if new_price > current_price:
+
+        cur.execute(
+            "UPDATE players SET price=%s WHERE id=%s",
+            (new_price, player_id)
+        )
+
+        conn.commit()
+
+    conn.close()
+
+    return redirect("/")
+
+
+# -----------------------------
 # SIGNUP
-# -------------------------------
+# -----------------------------
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
 
@@ -117,26 +181,28 @@ def signup():
         cur = conn.cursor()
 
         try:
+
             cur.execute(
-                "INSERT INTO users(username,password) VALUES (?,?)",
+                "INSERT INTO users(username,password) VALUES(%s,%s)",
                 (username, password)
             )
+
             conn.commit()
-            flash("Account created successfully")
-            return redirect("/login")
 
         except:
-            flash("Username already exists")
-
-        finally:
             conn.close()
+            return "User already exists"
+
+        conn.close()
+
+        return redirect("/login")
 
     return render_template("signup.html")
 
 
-# -------------------------------
+# -----------------------------
 # LOGIN
-# -------------------------------
+# -----------------------------
 @app.route("/login", methods=["GET", "POST"])
 def login():
 
@@ -146,93 +212,44 @@ def login():
         password = request.form["password"]
 
         conn = get_db()
-        user = conn.execute(
-            "SELECT * FROM users WHERE username=?",
+        cur = conn.cursor()
+
+        cur.execute(
+            "SELECT password FROM users WHERE username=%s",
             (username,)
-        ).fetchone()
+        )
+
+        user = cur.fetchone()
 
         conn.close()
 
-        if user and check_password_hash(user["password"], password):
-            session["user_id"] = user["id"]
+        if user and check_password_hash(user[0], password):
+
+            session["user"] = username
+
             return redirect("/")
-        else:
-            flash("Invalid credentials")
+
+        return "Invalid login"
 
     return render_template("login.html")
 
 
-# -------------------------------
+# -----------------------------
 # LOGOUT
-# -------------------------------
+# -----------------------------
 @app.route("/logout")
 def logout():
+
     session.clear()
-    return redirect("/")
+
+    return redirect("/login")
 
 
-# -------------------------------
-# BID SYSTEM
-# -------------------------------
-@app.route("/bid/<int:player_id>", methods=["POST"])
-def bid(player_id):
-
-    if "user_id" not in session:
-        flash("Login required to bid")
-        return redirect("/login")
-
-    bid_price = int(request.form["bid_price"])
-    user_id = session["user_id"]
-
-    conn = get_db()
-    player = conn.execute(
-        "SELECT * FROM players WHERE id=?",
-        (player_id,)
-    ).fetchone()
-
-    if bid_price <= player["price"]:
-        flash("Bid must be higher than current price")
-        conn.close()
-        return redirect("/")
-
-    conn.execute(
-        "UPDATE players SET price=? WHERE id=?",
-        (bid_price, player_id)
-    )
-
-    conn.execute(
-        "INSERT INTO bids(user_id,player_id,bid_price) VALUES (?,?,?)",
-        (user_id, player_id, bid_price)
-    )
-
-    conn.commit()
-    conn.close()
-
-    flash("Bid placed successfully")
-    return redirect("/")
-
-
-# -------------------------------
-# API SEARCH (optional for JS)
-# -------------------------------
-@app.route("/api/players")
-def api_players():
-
-    conn = get_db()
-    players = conn.execute("SELECT * FROM players").fetchall()
-    conn.close()
-
-    return jsonify([dict(p) for p in players])
-
-
-# -------------------------------
-# RUN APP
-# -------------------------------
+# -----------------------------
+# RUN
+# -----------------------------
 if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", 10000))
 
-    app.run(
-        host="0.0.0.0",
-        port=port
-    )
+    app.run(host="0.0.0.0", port=port)
