@@ -6,12 +6,13 @@ app = Flask(__name__)
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
+
 def get_db():
-    conn = psycopg2.connect(DATABASE_URL)
-    return conn
+    return psycopg2.connect(DATABASE_URL)
 
 
 def init_db():
+
     conn = get_db()
     cur = conn.cursor()
 
@@ -29,6 +30,7 @@ def init_db():
     count = cur.fetchone()[0]
 
     if count == 0:
+
         players = [
             ("Virat Kohli",138.1,52.7,2000000),
             ("Rohit Sharma",140.2,48.3,1800000),
@@ -47,6 +49,10 @@ def init_db():
     conn.commit()
     cur.close()
     conn.close()
+
+
+# 👇 THIS RUNS WHEN SERVER STARTS
+init_db()
 
 
 @app.route("/")
@@ -101,8 +107,3 @@ def bid(id):
     conn.close()
 
     return redirect(f"/player/{id}")
-
-
-if __name__ == "__main__":
-    init_db()
-    app.run()
